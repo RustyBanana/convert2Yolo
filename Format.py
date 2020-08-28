@@ -314,13 +314,23 @@ class COCO:
     Handler Class for COCO Format
     """
     @staticmethod
-    def parse(json_path, img_path):
+    def parse(json_path, img_path, keep=set()):
 
         try:
             json_data = json.load(open(json_path))
 
             images_info = json_data["images"]
             cls_info = json_data["categories"]
+
+            images_info_dict = {}
+            for image_info in images_info:
+                image_id = image_info['id']
+                images_info_dict[image_id] = image_info
+
+            cls_info_dict = {}
+            for class_info in cls_info:
+                class_id = class_info['id']
+                cls_info_dict[class_id] = class_info
 
             data = {}
             cls_hierarchy = {}
@@ -340,25 +350,32 @@ class COCO:
                 img_height = None
                 cls = None
 
-                for info in images_info:
-                    if info["id"] == image_id:
-                        filename, img_width, img_height = \
-                            info["file_name"].split(
-                                ".")[0], info["width"], info["height"]
+                try:
+                    info = images_info_dict[image_id]
+                    filename, img_width, img_height = \
+                        info["file_name"].split(
+                            ".")[0], info["width"], info["height"]
 
-                        if img_width == 0 or img_height == 0:
-                            img = Image.open(os.path.join(
-                                img_path, info["file_name"]))
-                            img_width = str(img.size[0])
-                            img_height = str(img.size[1])
+                    if img_width == 0 or img_height == 0:
+                        img = Image.open(os.path.join(
+                            img_path, info["file_name"]))
+                        img_width = str(img.size[0])
+                        img_height = str(img.size[1])
+                except KeyError:
+                    # Annotation is not in images info
+                    continue
 
-                for category in cls_info:
-                    if category["id"] == cls_id:
-                        cls = category["name"]
-                        cls_parent = category['supercategory'] if 'supercategory' in category else None
+                try:
+                    category = cls_info_dict[cls_id] 
+                except KeyError:
+                    # Annotation class is not in class info
+                    continue
 
-                        if cls not in cls_hierarchy:
-                            cls_hierarchy[cls] = cls_parent
+                cls = category["name"]
+                cls_parent = category['supercategory'] if 'supercategory' in category else None
+
+                if cls not in cls_hierarchy:
+                    cls_hierarchy[cls] = cls_parent
 
                 size = {
                     "width": img_width,
@@ -378,22 +395,23 @@ class COCO:
                     "bndbox": bndbox
                 }
 
-                if filename in data:
-                    obj_idx = str(int(data[filename]["objects"]["num_obj"]))
-                    data[filename]["objects"][str(obj_idx)] = obj_info
-                    data[filename]["objects"]["num_obj"] = int(obj_idx) + 1
+                if not keep or cls in keep:
+                    if filename in data:
+                        obj_idx = str(int(data[filename]["objects"]["num_obj"]))
+                        data[filename]["objects"][str(obj_idx)] = obj_info
+                        data[filename]["objects"]["num_obj"] = int(obj_idx) + 1
 
-                elif filename not in data:
+                    elif filename not in data:
 
-                    obj = {
-                        "num_obj": "1",
-                        "0": obj_info
-                    }
+                        obj = {
+                            "num_obj": "1",
+                            "0": obj_info
+                        }
 
-                    data[filename] = {
-                        "size": size,
-                        "objects": obj
-                    }
+                        data[filename] = {
+                            "size": size,
+                            "objects": obj
+                        }
 
                 printProgressBar(progress_cnt + 1, progress_length,
                                  prefix='COCO Parsing:'.ljust(15), suffix='Complete', length=40)
@@ -756,12 +774,11 @@ class YOLO:
 
                         if type(cls_hierarchy) is dict and cls_name in cls_hierarchy:
                             return get_class_index(cls_list, cls_hierarchy, cls_hierarchy[cls_name])
-
+                        
                         return None
 
-                    cls_id = get_class_index(
-                        self.cls_list, self.cls_hierarchy, cls_name)
-
+                    cls_id = get_class_index(self.cls_list, self.cls_hierarchy,
+                            cls_name)
                     bndbox = "".join(["".join([str(e), " "]) for e in bb])
                     contents = "".join(
                         [contents, str(cls_id), " ", bndbox[:-1], "\n"])
